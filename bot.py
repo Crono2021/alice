@@ -4,6 +4,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 import re
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+print("BOT_TOKEN recibido:", BOT_TOKEN)
 
 CLEAN_REGEX = r"(@\S+|#\S+|https?://\S+|www\.\S+)"
 
