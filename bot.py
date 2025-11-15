@@ -3,34 +3,50 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 import re
 
+# Obtener token desde las variables de entorno (Railway)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 print("BOT_TOKEN recibido:", BOT_TOKEN)
 
 # Regex que elimina menciones, hashtags y enlaces
 CLEAN_REGEX = r"(@\S+|#\S+|https?://\S+|www\.\S+)"
 
-# Estado por usuario: { user_id: {"season": int, "counter": int} }
+# Estado por usuario: { user_id: {"season": X, "counter": Y} }
 user_states = {}
+
+# -------------------------------------------------------
+# LIMPIEZA DE CAPTION (RESPETA FORMATO Y SALTOS DE LÍNEA)
+# -------------------------------------------------------
 
 def clean_caption(caption: str) -> str:
     if not caption:
         return ""
+
+    # 1. Eliminar menciones, hashtags y enlaces
     cleaned = re.sub(CLEAN_REGEX, "", caption)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    # 2. Corregir dobles espacios sin tocar saltos de línea
+    cleaned = re.sub(r"[ ]{2,}", " ", cleaned)
+
+    # 3. Limpiar espacios al inicio/final de cada línea
+    cleaned = "\n".join(line.strip() for line in cleaned.splitlines())
+
+    # 4. Eliminar líneas vacías duplicadas
+    cleaned = "\n".join([line for line in cleaned.splitlines() if line.strip()])
+
     return cleaned
 
 
 # -------------------------------
-#   COMANDOS
+#          COMANDOS
 # -------------------------------
 
 async def cmd_temporada(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Activar temporada y reiniciar contador"""
     message = update.message
 
     if message.chat.type != "private":
         return
 
+    # Validar argumento
     if len(context.args) != 1 or not context.args[0].isdigit():
         await message.reply_text("Uso correcto: /temporada 1")
         return
@@ -38,13 +54,16 @@ async def cmd_temporada(update: Update, context: ContextTypes.DEFAULT_TYPE):
     season = int(context.args[0])
     user_id = message.from_user.id
 
+    # Guardar estado del usuario
     user_states[user_id] = {"season": season, "counter": 1}
 
-    await message.reply_text(f"Temporada {season} iniciada. Envía los archivos para enumerarlos.")
+    await message.reply_text(
+        f"Temporada {season} iniciada.\n"
+        f"Envía los archivos para numerarlos."
+    )
 
 
 async def cmd_finalizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Desactivar temporada"""
     message = update.message
 
     if message.chat.type != "private":
@@ -52,29 +71,32 @@ async def cmd_finalizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = message.from_user.id
 
+    # Borrar estado del usuario
     if user_id in user_states:
         del user_states[user_id]
 
-    await message.reply_text("Numeración finalizada. El bot vuelve a modo normal.")
+    await message.reply_text("Numeración finalizada. El bot vuelve al modo normal.")
+
 
 
 # -------------------------------
-#   MANEJO DE ARCHIVOS
+#   MANEJO DE ARCHIVOS / VIDEOS
 # -------------------------------
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
 
+    # Ignorar grupos, canales, etc.
     if message.chat.type != "private":
         return
 
-    user_id = message.from_user.id
     caption_original = message.caption or ""
     caption_limpio = clean_caption(caption_original)
 
+    user_id = message.from_user.id
     prefix = ""
 
-    # Si el usuario tiene temporada activa → generar prefijo
+    # Si el usuario tiene temporada activa → numerar
     if user_id in user_states:
         season = user_states[user_id]["season"]
         counter = user_states[user_id]["counter"]
@@ -84,14 +106,14 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     final_caption = f"{prefix}{caption_limpio}".strip()
 
-    # Enviar video procesado
+    # Si es video
     if message.video:
         await message.reply_video(
             video=message.video.file_id,
             caption=final_caption
         )
 
-    # Enviar documento procesado
+    # Si es documento (archivo)
     elif message.document:
         await message.reply_document(
             document=message.document.file_id,
@@ -99,8 +121,9 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+
 # -------------------------------
-#   MAIN
+#             MAIN
 # -------------------------------
 
 def main():
