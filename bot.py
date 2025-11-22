@@ -1,4 +1,5 @@
 import os
+import json
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 import re
@@ -8,19 +9,33 @@ print("BOT_TOKEN recibido:", BOT_TOKEN)
 
 CLEAN_REGEX = r"(@\S+|#\S+|https?://\S+|www\.\S+)"
 
+# Ruta del archivo persistente en Railway
+USERS_FILE = "/data/usuarios.json"
+
+# Cargar usuarios almacenados
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        return {}
+    try:
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+# Guardar usuarios
+def save_users(data):
+    os.makedirs("/data", exist_ok=True)
+    with open(USERS_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+# Diccionario en memoria
+registered_users = load_users()
+
 # Estados del usuario
-# user_states = {
-#   user_id: {
-#       "season": int | None,
-#       "counter": int,
-#       "delete_mode": bool,
-#       "delete_text": str
-#   }
-# }
 user_states = {}
 
 # -------------------------------------------------------
-# LIMPIEZA DE CAPTION (RESPETA FORMATO Y SALTOS DE LÍNEA)
+# LIMPIEZA DE CAPTION
 # -------------------------------------------------------
 
 def clean_caption(caption: str) -> str:
@@ -36,12 +51,56 @@ def clean_caption(caption: str) -> str:
 
 
 # -------------------------------------------------------
+# REGISTRO DE USUARIOS
+# -------------------------------------------------------
+
+def register_user(update: Update):
+    """Guarda en archivo JSON todos los usuarios que usen el bot."""
+    user = update.message.from_user
+    user_id = str(user.id)
+
+    if user_id not in registered_users:
+        registered_users[user_id] = {
+            "name": user.full_name,
+            "username": f"@{user.username}" if user.username else "",
+            "id": user.id
+        }
+        save_users(registered_users)
+
+
+# -------------------------------------------------------
+# COMANDO /usuarios (solo owner)
+# -------------------------------------------------------
+
+OWNER_ID = 5540195020
+
+async def cmd_usuarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+
+    if message.from_user.id != OWNER_ID:
+        return await message.reply_text("No tienes permiso para usar este comando.")
+
+    if not registered_users:
+        return await message.reply_text("No hay usuarios registrados.")
+
+    texto = "📌 *Usuarios registrados:*\n\n"
+    for uid, info in registered_users.items():
+        texto += f"👤 *{info['name']}*\n"
+        texto += f"   🧩 ID: `{info['id']}`\n"
+        texto += f"   🔗 Usuario: {info['username']}\n\n"
+
+    await message.reply_text(texto, parse_mode="Markdown")
+
+
+# -------------------------------------------------------
 # COMANDO /temporada
 # -------------------------------------------------------
 async def cmd_temporada(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if message.chat.type != "private":
         return
+
+    register_user(update)
 
     if len(context.args) != 1 or not context.args[0].isdigit():
         await message.reply_text("Uso correcto: /temporada 1")
@@ -66,6 +125,8 @@ async def cmd_borrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if message.chat.type != "private":
         return
+
+    register_user(update)
 
     if len(context.args) == 0:
         await message.reply_text("Uso correcto: /borrar TEXTO\nEjemplo: /borrar [1080p h264 Web-DL]")
@@ -94,6 +155,8 @@ async def cmd_finalizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message.chat.type != "private":
         return
 
+    register_user(update)
+
     user_id = message.from_user.id
 
     if user_id in user_states:
@@ -112,6 +175,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if message.chat.type != "private":
         return
+
+    register_user(update)
 
     user_id = message.from_user.id
     state = user_states.get(user_id, {})
@@ -136,7 +201,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_caption = f"{prefix}{final_caption}".strip()
         user_states[user_id]["counter"] += 1
 
-    # Enviar archivo limpio
     if message.video:
         await message.reply_video(video=message.video.file_id, caption=final_caption)
 
@@ -153,6 +217,7 @@ def main():
     app.add_handler(CommandHandler("temporada", cmd_temporada))
     app.add_handler(CommandHandler("borrar", cmd_borrar))
     app.add_handler(CommandHandler("finalizar", cmd_finalizar))
+    app.add_handler(CommandHandler("usuarios", cmd_usuarios))
 
     app.add_handler(MessageHandler(filters.VIDEO | filters.Document.ALL, handle_media))
 
