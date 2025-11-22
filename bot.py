@@ -8,8 +8,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 print("BOT_TOKEN recibido:", BOT_TOKEN)
 
 CLEAN_REGEX = r"(@\S+|#\S+|https?://\S+|www\.\S+)"
-
-# Archivo persistente
 USERS_FILE = "/data/usuarios.json"
 
 # -----------------------------
@@ -34,6 +32,7 @@ registered_users = load_users()
 # Estados de usuario
 user_states = {}
 
+# Tu ID
 OWNER_ID = 5540195020
 
 
@@ -60,20 +59,25 @@ async def send_welcome_message(update: Update):
 # REGISTRO DE USUARIOS
 # -----------------------------
 async def register_user(update: Update):
-    """Registrar usuario y mostrar bienvenida si es primera vez."""
+    """Registrar usuario si es primera vez."""
     user = update.message.from_user
     user_id = str(user.id)
 
-    first_time = user_id not in registered_users
-
-    if first_time:
+    if user_id not in registered_users:
         registered_users[user_id] = {
             "name": user.full_name,
             "username": f"@{user.username}" if user.username else "",
             "id": user.id
         }
         save_users(registered_users)
-        await send_welcome_message(update)
+
+
+# -----------------------------
+# /start → siempre envía bienvenida
+# -----------------------------
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await register_user(update)
+    await send_welcome_message(update)
 
 
 # -----------------------------
@@ -215,6 +219,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await register_user(update)
+    # No enviamos bienvenida aquí, porque /start ya la cubre.
 
 
 # -----------------------------
@@ -223,6 +228,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("temporada", cmd_temporada))
     app.add_handler(CommandHandler("borrar", cmd_borrar))
     app.add_handler(CommandHandler("finalizar", cmd_finalizar))
